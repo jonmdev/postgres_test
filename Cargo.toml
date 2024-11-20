@@ -7,4 +7,10 @@ edition = "2021"
 
 [dependencies]
 ping = "0.5.2" #https://crates.io/crates/ping
+
 postgres = "0.19.9" #https://crates.io/crates/postgres
+
+jdbc = "0.1.0" #https://crates.io/crates/jdbc
+
+serde = { version = "1.0", features = ["derive"] }  # Serde for serialization
+serde_json = "1.0"  # Serde's JSON handling crate

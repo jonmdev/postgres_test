@@ -3,20 +3,31 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
 //POSTGRES TRY
-use postgres::{Client, Config, GenericClient, NoTls, Row, SimpleQueryMessage, SimpleQueryRow};
-
+use postgres::{Client, Config, GenericClient, NoTls, Row, SimpleQueryMessage, SimpleQueryRow };
+use std::collections::HashMap;
+use serde_json::json;
+use std::sync::Arc;
 fn main() {
     println!("Hello, world!");
     println!("Ping:");
     run_ping();
     println!("Done");
 
-    run_postgres();
+    //run_postgres();
     println!("Done postgres");
 
 }
+
+//https://github.com/tokio-rs/rdbc
+//https://lib.rs/crates/jdbc
+fn run_jdbc(){
+
+}
+
 fn run_postgres(){
     let mut config = Config::new();
+
+    //NEED PORT CHANGED ALSO IF NEEDED=============
     config.host("localhost")
           .user("root")
           .password("password")
@@ -31,19 +42,52 @@ fn run_postgres(){
     //let rows_result = client.query("SELECT * FROM Customer", &[]); //DOESN"T WORK
     
     //WORKS:
-    let rows_result = client.simple_query("SELECT * FROM Customer");
+    let name = "*";
+    let query_string: String =  format!("SELECT {} FROM Customer", name);
+    let query_result = client.simple_query(&query_string);
+    //let query_result = client.simple_query("SELECT * FROM Customer");
 
     //let statement = client.prepare("SELECT $1 FROM Customer");
     //let rows_result = client.query(&statement, &[&"*"]);
 
     //The simplequerymessage represents a simple query request sent by the client to the PostgreSQL server. A "simple query" is essentially just a plain SQL query like SELECT * FROM users; or INSERT INTO table_name VALUES (...). This is in contrast to more complex query types, such as prepared statements or extended queries.
 
+    let mut json_results = Vec::new();
+
+    match query_result {
+        Ok(rows) => {
+ 
+            for row in &rows {
+                match row {
+                    SimpleQueryMessage::Row(row) => {
+                        // Convert each row into a HashMap (we'll assume you know the structure of the row)
+                        let mut row_map = HashMap::new();
+                        
+                        let columns = row.columns();  // Get column metadata
+
+                        for (i, value) in columns.iter().enumerate() {
+                        
+                            row_map.insert(columns[i].name(), row.get(i));
+                        
+                        //can filter out parts not needed here or alter query, eg. don't need "@cat": "v", (vertex)
+                        }
+                        
+                        json_results.push(row_map);
+                    },
+                    _ => {}
+                }
+            }
+
+            // Convert to JSON string using serde_json
+            let json_string = serde_json::to_string(&json_results).expect("MADE JSON WRONG");
+
+            // Print the JSON string
+            println!("{}", json_string);
+
 
     //client.simple_query(&statement, &[&"*"]);
     // Match on the result
-    match rows_result {
-       Ok(rows) => {
-
+    
             println!("rows {}", &rows.len());
             // Successfully fetched rows, process them
             for row in rows {
@@ -61,11 +105,11 @@ fn run_postgres(){
                 }
             }
         }
-    Err(e) => {
-        // Handle error
-        eprintln!("Error fetching customers: {}", e);
+        Err(e) => {
+            // Handle error
+            eprintln!("Error fetching customers: {}", e);
+        }
     }
-}
     //let rows_result = rows.expect("UNWRAPPED ROWS BAD");
 
     // Iterate over the results and print each row
