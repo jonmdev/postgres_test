@@ -1,30 +1,38 @@
+//PING STUFF
 use ping::ping; //for ping test
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
-//POSTGRES TRY
+//POSTGRES STUFF
 use postgres::{Client, Config, GenericClient, NoTls, Row, SimpleQueryMessage, SimpleQueryRow };
 use std::collections::HashMap;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
+
+
+//===================
+//PROGRAM TO RUN
+//===================
 fn main() {
     println!("Hello, world!");
     println!("Ping:");
     run_ping();
     println!("Done");
 
-    //run_postgres();
+    run_postgres_prepared(); // DOESN'T WORK
+    //run_postgres_simple(); // WORKS (BUT NOT SAFE) 
     println!("Done postgres");
 
 }
 
 //https://github.com/tokio-rs/rdbc
 //https://lib.rs/crates/jdbc
-fn run_jdbc(){
+// fn run_jdbc(){
 
-}
+// }
 
-fn run_postgres(){
+
+fn run_postgres_prepared(){
     let mut config = Config::new();
 
     //NEED PORT CHANGED ALSO IF NEEDED=============
@@ -36,16 +44,101 @@ fn run_postgres(){
 
     let mut client = result.expect("FAILED TO UNWRAP CLIENT");  // This will panic if the connection fails
 
-    //select * from Customer
-    // Query the database: SELECT * FROM Customer
+    //https://docs.rs/postgres/latest/postgres/struct.Client.html#method.simple_query
+    
+    let first_name="Carl";
+    let query= "SELECT * FROM Customer WHERE firstName = $1";
+    let query_result = client.query(query,&[&first_name]);
+
+    //alternative method, trickier to make work:
+    //let statement = client.prepare("SELECT * FROM Customer WHERE firstName = $1").expect("could not unwrap client prepare");
+    //let query_result = client.query(&statement,&[&first_name]);
+
+    let mut json_results = Vec::new();
+
+    match query_result {
+        Ok(rows) => {
+ 
+            for row in &rows {
+
+                // Convert each row into a HashMap (we'll assume you know the structure of the row)
+                let mut row_map: HashMap<&str, serde_json::Value> = HashMap::new();
+                
+                let columns = row.columns();  // Get column metadata
+
+                for (i, column) in columns.iter().enumerate() {
+                    let value: Value = match row.try_get::<_, String>(i) {
+                        Ok(val) => Value::String(val),
+                        Err(_) => match row.try_get::<_, i32>(i) {
+                            Ok(val) => Value::Number(val.into()),
+                            Err(_) => match row.try_get::<_, bool>(i) {
+                                Ok(val) => Value::Bool(val),
+                                Err(_) => match row.try_get::<_, f64>(i) {
+                                    Ok(val) => {
+                                        Value::Number(serde_json::Number::from_f64(val).unwrap_or_else(|| serde_json::Number::from(0)))
+                                    }
+                                    Err(_) => Value::Null, // Handle unknown or NULL values gracefully
+                                },
+                            },
+                        },
+                    };
+                    row_map.insert(column.name(), value);
+                
+                //can filter out parts not needed here or alter query, eg. don't need "@cat": "v", (vertex)
+                }
+                
+                json_results.push(row_map);
+        
+            }
+
+            // Convert to JSON string using serde_json
+            let json_string = serde_json::to_string(&json_results).expect("JSON CREATION FAILED");
+
+            // Print the JSON string
+            println!("{}", json_string);
+            
+            // Optionally, you can print the number of rows fetched
+            println!("Fetched {} rows", rows.len());
+
+        }
+        Err(e) => {
+            // Handle error
+            eprintln!("Error fetching customers: {}", e);
+        }
+    }
+    
+    // Now you can use the `client` object to interact with the database
+    println!("Successfully connected to the database!");
+    //let mut client= Client::connect("host=localhost user=root", NoTls);
+    //if no port 5432 is used
+    //https://docs.rs/postgres/latest/postgres/config/struct.Config.html#method.port
+
+}
+
+
+//============================================
+// SIMPLE POST GRES MODE (UNSAFE)
+//============================================
+fn run_postgres_simple(){
+    let mut config = Config::new();
+
+    //NEED PORT CHANGED ALSO IF NEEDED=============
+    config.host("localhost")
+          .user("root")
+          .password("password")
+          .dbname("mydb");
+    let result: Result<Client, postgres::Error> = config.connect(NoTls);
+
+    let mut client = result.expect("FAILED TO UNWRAP CLIENT");  // This will panic if the connection fails
+
     //https://docs.rs/postgres/latest/postgres/struct.Client.html#method.simple_query
     //let rows_result = client.query("SELECT * FROM Customer", &[]); //DOESN"T WORK
     
-    //WORKS:
-    let name = "*";
-    let query_string: String =  format!("SELECT {} FROM Customer", name);
-    let query_result = client.simple_query(&query_string);
-    //let query_result = client.simple_query("SELECT * FROM Customer");
+    //string interpolation (not safe but works):
+    //let name = "*";
+    //let query_string: String =  format!("SELECT {} FROM Customer", name);
+    //let query_result = client.simple_query(&query_string);
+    let query_result = client.simple_query("SELECT * FROM Customer");
 
     //let statement = client.prepare("SELECT $1 FROM Customer");
     //let rows_result = client.query(&statement, &[&"*"]);
@@ -88,6 +181,9 @@ fn run_postgres(){
     //client.simple_query(&statement, &[&"*"]);
     // Match on the result
     
+    //====================
+    //PRINT EACH ROW
+    //====================
             println!("rows {}", &rows.len());
             // Successfully fetched rows, process them
             for row in rows {
@@ -110,21 +206,7 @@ fn run_postgres(){
             eprintln!("Error fetching customers: {}", e);
         }
     }
-    //let rows_result = rows.expect("UNWRAPPED ROWS BAD");
-
-    // Iterate over the results and print each row
-    //for row in rows {
-
-        //println!("row {}", row, name, email);
-        // Assume the 'customer' table has fields: id (integer), name (text), and email (text)
-        //let id: i32 = row.get(0);      // Column 0 is 'id'
-        //let name: String = row.get(1); // Column 1 is 'name'
-        //let email: String = row.get(2); // Column 2 is 'email'
-
-        // Print the customer data
-        //println!("Customer ID: {}, Name: {}, Email: {}", id, name, email);
-    //}
-
+    
     // Now you can use the `client` object to interact with the database
     println!("Successfully connected to the database!");
     //let mut client= Client::connect("host=localhost user=root", NoTls);
@@ -133,6 +215,9 @@ fn run_postgres(){
 
 }
 
+//=======================
+//PING TEST
+//=======================
 fn run_ping(){
     // Ping google.com and display the result
     // Define the target IP address (google.com resolved to an IP address)
